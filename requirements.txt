@@ -1,0 +1,48 @@
+# Wind Turbine Bearing RUL Prediction - Required Packages
+# 풍력 터빈 베어링 RUL 예측 - 필수 패키지 목록
+
+# Core scientific computing
+numpy>=1.21.0
+pandas>=1.3.0
+scipy>=1.7.0
+
+# Machine learning
+scikit-learn>=1.0.0
+
+# Deep learning (LSTM functionality)
+tensorflow>=2.8.0,<2.15.0  # TensorFlow 2.x (avoid 2.15+ for compatibility)
+# Alternative: tensorflow-cpu>=2.8.0,<2.15.0  # CPU-only version
+
+# Data visualization
+matplotlib>=3.5.0
+seaborn>=0.11.0
+
+# Data handling
+requests>=2.25.0
+
+# Utilities
+tqdm>=4.62.0  # Progress bars (optional enhancement)
+
+# Optional packages for enhanced functionality
+# Uncomment if needed:
+
+# jupyter>=1.0.0  # For Jupyter notebook support
+# ipykernel>=6.0.0  # Jupyter kernel
+# plotly>=5.0.0  # Interactive plots
+# dash>=2.0.0  # Web dashboard (for monitoring system)
+
+# Development and testing tools (optional)
+# pytest>=6.0.0  # Unit testing
+# black>=22.0.0  # Code formatting
+# flake8>=4.0.0  # Code linting
+# mypy>=0.910  # Type checking
+
+# GPU support (optional, choose one):
+# tensorflow-gpu>=2.8.0,<2.15.0  # GPU version of TensorFlow
+# OR
+# tensorflow[and-cuda]>=2.8.0  # TensorFlow with CUDA support
+
+# Additional scientific packages (optional)
+# statsmodels>=0.13.0  # Advanced statistical models
+# pyFFTW>=0.12.0  # Fast FFT computations
+# numba>=0.56.0  # JIT compilation for performance
