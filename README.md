@@ -3,6 +3,7 @@
 ## 📖 프로젝트 개요
 
 MATLAB의 풍력 터빈 고속 베어링 진단 예제를 Python으로 변환하고, **LSTM 딥러닝 모델**을 추가한 고도화된 잔여 수명(RUL) 예측 시스템입니다.
+- https://kr.mathworks.com/help/predmaint/ug/wind-turbine-high-speed-bearing-prognosis.html
 
 ### ✨ 주요 특징
 
