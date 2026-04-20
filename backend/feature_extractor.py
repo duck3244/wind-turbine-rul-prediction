@@ -465,23 +465,30 @@ class DimensionReducer:
         
         return pca_components
     
-    def get_health_indicator(self, pca_components: np.ndarray, 
-                           component_idx: int = 0) -> np.ndarray:
+    def get_health_indicator(self, pca_components: np.ndarray,
+                           component_idx: int = 0,
+                           min_variance_ratio: float = 0.4) -> np.ndarray:
         """
-        건강 지표 생성 (첫 번째 주성분 사용)
-        
-        Args:
-            pca_components (np.ndarray): PCA 주성분들
-            component_idx (int): 사용할 주성분 인덱스
-            
-        Returns:
-            np.ndarray: 건강 지표
+        건강 지표 생성 (기본값: 첫 번째 주성분 사용).
+
+        선택된 주성분의 설명 분산 비율이 min_variance_ratio 미만이면
+        건강 지표의 신뢰도가 낮다는 경고를 남긴다.
         """
+        if self.is_fitted:
+            explained = self.pca.explained_variance_ratio_[component_idx]
+            if explained < min_variance_ratio:
+                warnings.warn(
+                    f"PCA component {component_idx} 의 설명 분산이 {explained:.1%} 로 낮습니다 "
+                    f"(임계값 {min_variance_ratio:.1%}). 건강 지표 신뢰도를 확인하세요.",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+
         health_indicator = pca_components[:, component_idx]
-        
+
         # 0에서 시작하도록 조정
         health_indicator = health_indicator - health_indicator[0]
-        
+
         return health_indicator
     
     def get_explained_variance_ratio(self) -> np.ndarray:

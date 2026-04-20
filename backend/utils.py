@@ -6,6 +6,7 @@ Utility functions for Wind Turbine Bearing RUL Prediction
 import numpy as np
 import pandas as pd
 import os
+import random
 import json
 import pickle
 import time
@@ -16,6 +17,18 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error
 import matplotlib.pyplot as plt
 
 from config import *
+
+
+def set_global_seed(seed: int = RANDOM_SEED) -> None:
+    """재현성 확보를 위해 random/numpy/tensorflow 시드를 통합 설정."""
+    random.seed(seed)
+    np.random.seed(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    try:
+        import tensorflow as tf
+        tf.random.set_seed(seed)
+    except ImportError:
+        pass
 
 class ProgressTracker:
     """진행 상황 추적 클래스"""

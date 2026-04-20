@@ -10,8 +10,8 @@ scipy>=1.7.0
 scikit-learn>=1.0.0
 
 # Deep learning (LSTM functionality)
-tensorflow>=2.8.0,<2.15.0  # TensorFlow 2.x (avoid 2.15+ for compatibility)
-# Alternative: tensorflow-cpu>=2.8.0,<2.15.0  # CPU-only version
+tensorflow>=2.8.0
+# Alternative: tensorflow-cpu>=2.8.0  # CPU-only version
 
 # Data visualization
 matplotlib>=3.5.0

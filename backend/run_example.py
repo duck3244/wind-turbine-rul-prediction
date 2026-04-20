@@ -67,62 +67,63 @@ def create_directories():
         except Exception as e:
             print(f"⚠️ 디렉토리 생성 실패 ({directory}): {e}")
 
+def _build_pipeline(use_visualization: bool):
+    """main 모듈의 SimpleRULPipeline을 구성한다."""
+    from main import SimpleRULPipeline, check_imports
+    from config import ensure_output_dirs
+    from utils import set_global_seed
+
+    import_ok, resolved_components = check_imports()
+    if not import_ok:
+        raise RuntimeError("필수 모듈 import 실패")
+
+    set_global_seed()
+    ensure_output_dirs()
+
+    use_lstm = resolved_components['tensorflow_available']
+    has_visualizer = resolved_components['visualizer'] is not None
+
+    return SimpleRULPipeline(
+        components=resolved_components,
+        use_lstm=use_lstm,
+        use_visualization=use_visualization and has_visualizer,
+    )
+
+
 def run_basic_example():
     """기본 예제 실행"""
     print("\n🚀 기본 파이프라인 실행 중...")
-    
+
     try:
-        from main import RULPredictionPipeline
-        
-        # 기본 설정으로 파이프라인 생성
-        pipeline = RULPredictionPipeline()
-        
-        # 파이프라인 실행
-        success = pipeline.run_complete_pipeline()
-        
+        pipeline = _build_pipeline(use_visualization=True)
+        success = pipeline.run_pipeline()
+
         if success:
             print("✅ 기본 예제 실행 완료!")
             return True
-        else:
-            print("❌ 기본 예제 실행 실패")
-            return False
-            
+        print("❌ 기본 예제 실행 실패")
+        return False
+
     except Exception as e:
         print(f"❌ 기본 예제 실행 중 오류: {e}")
         traceback.print_exc()
         return False
 
+
 def run_fast_example():
-    """빠른 예제 실행 (시각화/저장 없이)"""
+    """빠른 예제 실행 (시각화 없이)"""
     print("\n⚡ 빠른 예제 실행 중 (시각화 제외)...")
-    
+
     try:
-        from main import RULPredictionPipeline
-        
-        # 파이프라인 생성
-        pipeline = RULPredictionPipeline()
-        
-        # 빠른 실행을 위한 메서드 오버라이드
-        def dummy_visualize():
-            print("  시각화 건너뛰기")
-            return {}
-        
-        def dummy_save():
-            print("  모델 저장 건너뛰기")
-        
-        pipeline.generate_visualizations = dummy_visualize
-        pipeline.save_models = dummy_save
-        
-        # 파이프라인 실행
-        success = pipeline.run_complete_pipeline()
-        
+        pipeline = _build_pipeline(use_visualization=False)
+        success = pipeline.run_pipeline()
+
         if success:
             print("✅ 빠른 예제 실행 완료!")
             return True
-        else:
-            print("❌ 빠른 예제 실행 실패")
-            return False
-            
+        print("❌ 빠른 예제 실행 실패")
+        return False
+
     except Exception as e:
         print(f"❌ 빠른 예제 실행 중 오류: {e}")
         traceback.print_exc()

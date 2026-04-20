@@ -117,9 +117,10 @@ class DataLoader:
                             vibration_data = data_array.flatten()
                             break
             
-            # 타코미터 데이터가 없으면 합성 데이터 생성
+            # 타코미터 데이터가 없으면 합성 데이터 생성 (재현성을 위해 파일명 해시 기반 시드)
             if tach_data is None:
-                tach_data = np.random.normal(180, 10, 187)
+                seed = abs(hash(os.path.basename(mat_file))) % (2**32)
+                tach_data = np.random.default_rng(seed).normal(180, 10, 187)
             
             return {
                 'Date': timestamp,
@@ -187,8 +188,8 @@ class DataLoader:
             pd.DataFrame: 시뮬레이션된 데이터
         """
         print("시뮬레이션 풍력 터빈 베어링 데이터 생성 중...")
-        
-        np.random.seed(42)
+
+        rng = np.random.default_rng(RANDOM_SEED)
         dates = pd.date_range('2013-03-11', periods=50, freq='D')
         
         vibration_data = []
@@ -202,7 +203,7 @@ class DataLoader:
             t = np.linspace(0, 6, EXPECTED_SIGNAL_LENGTH)
             
             # 기본 신호 (증가하는 진폭)
-            base_signal = np.random.normal(0, 1.5 * degradation_factor, len(t))
+            base_signal = rng.normal(0, 1.5 * degradation_factor, len(t))
             
             # 베어링 고장 주파수 성분 추가
             fault_freq = 180  # Hz (베어링 고장 주파수)
@@ -214,7 +215,7 @@ class DataLoader:
             
             # 충격 성분 (시간에 따라 증가)
             num_impulses = int(10 * degradation_factor)
-            impulse_locations = np.random.choice(len(t), num_impulses, replace=False)
+            impulse_locations = rng.choice(len(t), num_impulses, replace=False)
             impulse_signal = np.zeros_like(t)
             
             for loc in impulse_locations:
@@ -235,11 +236,11 @@ class DataLoader:
             vibration = base_signal + fault_signal + harmonic2 + harmonic3 + impulse_signal
             
             # 고주파 노이즈 추가
-            high_freq_noise = 0.1 * np.random.normal(0, 1, len(t))
+            high_freq_noise = 0.1 * rng.normal(0, 1, len(t))
             vibration += high_freq_noise
-            
+
             # 타코미터 데이터 (RPM 변동)
-            tachometer = np.random.normal(180, 5, 187)
+            tachometer = rng.normal(180, 5, 187)
             
             vibration_data.append(vibration)
             tach_data.append(tachometer)

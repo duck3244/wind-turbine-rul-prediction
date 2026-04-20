@@ -25,6 +25,9 @@ TRAIN_SPLIT = 0.6
 VALIDATION_SPLIT = 0.8  # 0.6-0.8 구간이 검증 세트
 # 0.8-1.0 구간이 테스트 세트
 
+# 재현성을 위한 전역 시드
+RANDOM_SEED = 42
+
 # =============================================================================
 # 특징 추출 설정
 # =============================================================================
@@ -62,8 +65,8 @@ LSTM_CONFIG = {
     'epochs': 150,
     'batch_size': 16,
     'learning_rate': 0.001,
-    'patience_early_stopping': 20,
-    'patience_lr_reduction': 10,
+    'patience_early_stopping': 15,
+    'patience_lr_reduction': 7,
     'lr_reduction_factor': 0.5,
     'min_learning_rate': 1e-6
 }
@@ -79,6 +82,15 @@ ENSEMBLE_CONFIG = {
         {'sequence_length': 15, 'lstm_units': 64, 'dropout_rate': 0.25}
     ]
 }
+
+# =============================================================================
+# RUL 예측값 후처리 설정
+# =============================================================================
+
+# 지수 모델이 무한대/비현실적 값을 낼 때 쓰이는 상한 (일)
+RUL_PREDICTION_UPPER_BOUND = 200
+# 위 상한을 초과하거나 inf 인 경우 대체값 (일)
+RUL_PREDICTION_FALLBACK = 50.0
 
 # =============================================================================
 # 성능 평가 설정
@@ -143,9 +155,13 @@ RESULTS_DIR = os.path.join(PROJECT_ROOT, 'results')
 MODELS_DIR = os.path.join(PROJECT_ROOT, 'saved_models')
 PLOTS_DIR = os.path.join(PROJECT_ROOT, 'plots')
 
-# 디렉토리 생성
-for directory in [RESULTS_DIR, MODELS_DIR, PLOTS_DIR]:
-    os.makedirs(directory, exist_ok=True)
+def ensure_output_dirs():
+    """결과/모델/플롯 저장 디렉토리를 명시적으로 생성한다.
+
+    import 시점 부작용을 피하기 위해 호출 시점에만 실행한다.
+    """
+    for directory in [RESULTS_DIR, MODELS_DIR, PLOTS_DIR]:
+        os.makedirs(directory, exist_ok=True)
 
 # =============================================================================
 # 로깅 설정

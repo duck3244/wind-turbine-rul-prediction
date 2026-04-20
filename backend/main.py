@@ -17,9 +17,6 @@ from datetime import datetime
 # 경고 메시지 필터링
 warnings.filterwarnings('ignore')
 
-# 전역 변수로 컴포넌트 저장
-components = None
-
 
 def check_imports():
     """필요한 모듈들을 안전하게 import"""
@@ -60,9 +57,12 @@ def check_imports():
 class SimpleRULPipeline:
     """간단하고 안정적인 RUL 예측 파이프라인"""
 
-    def __init__(self, use_lstm=True, use_visualization=True):
+    def __init__(self, components: dict, use_lstm=True, use_visualization=True,
+                 lstm_sequence_length: int = 8):
+        self.components = components
         self.use_lstm = use_lstm
         self.use_visualization = use_visualization
+        self.lstm_sequence_length = lstm_sequence_length
 
         # 결과 저장용
         self.data = None
@@ -80,7 +80,7 @@ class SimpleRULPipeline:
         print("\n📊 1단계: 데이터 로딩...")
 
         try:
-            loader = components['data_loader']()
+            loader = self.components['data_loader']()
             self.data = loader.load_wind_turbine_data()
 
             print(f"✅ 데이터 로딩 완료: {len(self.data)}개 샘플")
@@ -97,7 +97,8 @@ class SimpleRULPipeline:
         print("\n🔍 2단계: 특징 추출...")
 
         try:
-            FeatureExtractor, FeatureSelector, DimensionReducer = components['feature_extractor']
+            FeatureExtractor, FeatureSelector, DimensionReducer = self.components['feature_extractor']
+            from config import TRAIN_SPLIT
 
             # 특징 추출
             extractor = FeatureExtractor()
@@ -106,8 +107,8 @@ class SimpleRULPipeline:
             # 평활화
             features_smooth = extractor.apply_smoothing(features_raw)
 
-            # 특징 선택
-            train_size = int(0.7 * len(features_smooth))
+            # 특징 선택 (훈련 구간만 사용)
+            train_size = int(TRAIN_SPLIT * len(features_smooth))
             selector = FeatureSelector()
             selected_features = selector.select_features_by_monotonicity(
                 features_smooth.iloc[:train_size]
@@ -162,7 +163,9 @@ class SimpleRULPipeline:
         print("\n📈 4단계: 지수적 모델 훈련...")
 
         try:
-            model = components['exp_model']()
+            from config import RUL_PREDICTION_UPPER_BOUND, RUL_PREDICTION_FALLBACK
+
+            model = self.components['exp_model']()
 
             # 모델 훈련
             model.train(self.features, self.true_rul, self.health_indicator)
@@ -175,15 +178,12 @@ class SimpleRULPipeline:
             # 성능 계산
             true_aligned = self.true_rul[:-1]
 
-            # 무한대 값 처리
-            exp_pred_clean = []
-            for pred in self.exp_predictions:
-                if np.isinf(pred) or pred > 200:
-                    exp_pred_clean.append(50.0)  # 합리적 상한값
-                else:
-                    exp_pred_clean.append(max(0, pred))
-
-            exp_pred_clean = np.array(exp_pred_clean)
+            # 무한대/과도한 값 후처리
+            exp_pred_clean = np.where(
+                np.isinf(self.exp_predictions) | (self.exp_predictions > RUL_PREDICTION_UPPER_BOUND),
+                RUL_PREDICTION_FALLBACK,
+                np.maximum(self.exp_predictions, 0),
+            )
 
             mae = np.mean(np.abs(true_aligned - exp_pred_clean))
             rmse = np.sqrt(np.mean((true_aligned - exp_pred_clean) ** 2))
@@ -206,48 +206,49 @@ class SimpleRULPipeline:
 
     def step5_train_lstm_model(self):
         """5단계: LSTM 모델 훈련 (선택사항)"""
-        if not self.use_lstm or not components['tensorflow_available']:
+        if not self.use_lstm or not self.components['tensorflow_available']:
             print("\n⚠️  LSTM 모델 건너뛰기 (TensorFlow 없음 또는 비활성화)")
             return True
 
         print("\n🧠 5단계: LSTM 모델 훈련...")
 
         try:
-            LSTMRULPredictor = components['lstm_model']
+            LSTMRULPredictor = self.components['lstm_model']
+            seq_len = self.lstm_sequence_length
             model = LSTMRULPredictor(
-                sequence_length=8,  # 짧게 설정 (안정성)
-                lstm_units=32,  # 작게 설정 (빠른 훈련)
-                epochs=50,  # 적게 설정 (빠른 훈련)
-                dropout_rate=0.3
+                sequence_length=seq_len,
+                lstm_units=32,
+                epochs=50,
+                dropout_rate=0.3,
             )
 
-            # 모델 훈련
             print("   신경망 훈련 중 (잠시 기다려주세요)...")
             model.train(self.features, self.true_rul, verbose=0)
 
-            # 예측 수행
             lstm_pred = model.predict(self.features)
 
-            if len(lstm_pred) > 0:
-                # 길이 맞추기
-                min_len = min(len(lstm_pred), len(self.true_rul[:-1]))
-                lstm_pred_aligned = lstm_pred[:min_len]
-                true_aligned = self.true_rul[:min_len]
-
-                mae = np.mean(np.abs(true_aligned - lstm_pred_aligned))
-                rmse = np.sqrt(np.mean((true_aligned - lstm_pred_aligned) ** 2))
-
-                self.results['LSTM'] = {
-                    'predictions': lstm_pred_aligned,
-                    'mae': mae,
-                    'rmse': rmse
-                }
-
-                print(f"✅ LSTM 모델 훈련 완료:")
-                print(f"   - MAE: {mae:.3f} days")
-                print(f"   - RMSE: {rmse:.3f} days")
-            else:
+            if len(lstm_pred) == 0:
                 print("⚠️  LSTM 예측 결과가 비어있음")
+                return True
+
+            # create_sequences 규약: lstm_pred[k] 는 true_rul[k + seq_len] 예측
+            true_aligned = self.true_rul[seq_len:seq_len + len(lstm_pred)]
+            lstm_pred_aligned = lstm_pred[:len(true_aligned)]
+
+            mae = np.mean(np.abs(true_aligned - lstm_pred_aligned))
+            rmse = np.sqrt(np.mean((true_aligned - lstm_pred_aligned) ** 2))
+
+            self.results['LSTM'] = {
+                'predictions': lstm_pred_aligned,
+                'targets': true_aligned,
+                'sequence_offset': seq_len,
+                'mae': mae,
+                'rmse': rmse,
+            }
+
+            print(f"✅ LSTM 모델 훈련 완료:")
+            print(f"   - MAE: {mae:.3f} days")
+            print(f"   - RMSE: {rmse:.3f} days")
 
             return True
 
@@ -257,14 +258,14 @@ class SimpleRULPipeline:
 
     def step6_generate_visualizations(self):
         """6단계: 시각화 생성 (선택사항)"""
-        if not self.use_visualization or not components['visualizer']:
+        if not self.use_visualization or not self.components['visualizer']:
             print("\n⚠️  시각화 건너뛰기")
             return True
 
         print("\n📊 6단계: 시각화 생성...")
 
         try:
-            visualizer = components['visualizer']()
+            visualizer = self.components['visualizer']()
 
             # 건강 지표 시각화
             hi_fig = visualizer.plot_health_indicator(
@@ -378,7 +379,7 @@ def main():
     print("=" * 60)
 
     # 모듈 import 확인
-    import_ok, global_components = check_imports()
+    import_ok, resolved_components = check_imports()
     if not import_ok:
         print("❌ 필수 모듈을 import할 수 없습니다.")
         print("다음 명령으로 필요한 패키지를 설치하세요:")
@@ -386,26 +387,29 @@ def main():
         print("LSTM 기능을 위해: pip install tensorflow")
         return False
 
-    # 전역 변수로 컴포넌트 저장
-    global components
-    components = global_components
+    # 재현성 확보 및 출력 디렉토리 준비
+    from config import ensure_output_dirs
+    from utils import set_global_seed
+    set_global_seed()
+    ensure_output_dirs()
 
     # 명령행 인자 처리
     use_lstm = '--no-lstm' not in sys.argv
     use_visualization = '--no-plot' not in sys.argv
 
-    if not components['tensorflow_available']:
+    if not resolved_components['tensorflow_available']:
         use_lstm = False
         print("⚠️  TensorFlow를 사용할 수 없어 LSTM 기능이 비활성화됩니다.")
 
-    if not components['visualizer']:
+    if not resolved_components['visualizer']:
         use_visualization = False
         print("⚠️  시각화 모듈을 사용할 수 없어 시각화 기능이 비활성화됩니다.")
 
     # 파이프라인 실행
     pipeline = SimpleRULPipeline(
+        components=resolved_components,
         use_lstm=use_lstm,
-        use_visualization=use_visualization
+        use_visualization=use_visualization,
     )
 
     success = pipeline.run_pipeline()

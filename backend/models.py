@@ -115,6 +115,7 @@ class ExponentialDegradationModel(BaseRULPredictor):
         self.observations = []
         self.slope_detection_instant = None
         self.threshold = None
+        self.noise_variance = 0.0
         
     def set_threshold(self, health_indicator: np.ndarray):
         """임계값 설정"""
@@ -164,15 +165,24 @@ class ExponentialDegradationModel(BaseRULPredictor):
         
         try:
             time_to_failure = (np.log(self.threshold) - np.log(hi_value)) / self.beta_posterior
-            
+
             if time_to_failure <= 0:
                 return 0, [0, 0], None
-            
-            # 신뢰구간 계산 (간단화)
-            std_dev = np.sqrt(self.beta_variance_posterior)
+
+            # 델타 방법으로 분산 전파: t* = (log(T) - log(h)) / β
+            # Var(t*) ≈ (t*/β)^2 · Var(β) + (1/(h·β))^2 · Var(h)
+            d_t_d_beta = -time_to_failure / self.beta_posterior
+            d_t_d_h = -1.0 / (hi_value * self.beta_posterior)
+
+            var_t = (
+                d_t_d_beta ** 2 * self.beta_variance_posterior
+                + d_t_d_h ** 2 * self.noise_variance
+            )
+            std_dev = float(np.sqrt(max(var_t, 0.0)))
+
             ci_lower = max(0, time_to_failure - 1.96 * std_dev)
             ci_upper = time_to_failure + 1.96 * std_dev
-            
+
             return time_to_failure, [ci_lower, ci_upper], None
             
         except (ValueError, ZeroDivisionError):
@@ -245,14 +255,14 @@ class LSTMRULPredictor(BaseRULPredictor):
     
     def __init__(self, **config):
         super().__init__("LSTM")
-        
+
         if not TENSORFLOW_AVAILABLE:
             raise ImportError("TensorFlow가 필요합니다. pip install tensorflow")
-        
+
         # 설정값 로드
         lstm_config = LSTM_CONFIG.copy()
         lstm_config.update(config)
-        
+
         self.sequence_length = lstm_config['sequence_length']
         self.lstm_units = lstm_config['lstm_units']
         self.dropout_rate = lstm_config['dropout_rate']
@@ -263,17 +273,27 @@ class LSTMRULPredictor(BaseRULPredictor):
         self.patience_lr_reduction = lstm_config['patience_lr_reduction']
         self.lr_reduction_factor = lstm_config['lr_reduction_factor']
         self.min_learning_rate = lstm_config['min_learning_rate']
-        
+        self.random_seed = lstm_config.get('random_seed', RANDOM_SEED)
+
+        # 가중치 초기화 재현성 확보
+        tf.random.set_seed(self.random_seed)
+        np.random.seed(self.random_seed)
+
         self.model = None
         self.scaler_features = MinMaxScaler()
         self.scaler_targets = MinMaxScaler()
         self.training_history = None
     
     def create_sequences(self, features: np.ndarray, targets: Optional[np.ndarray] = None) -> Tuple:
-        """시계열 시퀀스 생성"""
+        """시계열 시퀀스 생성.
+
+        윈도우 features[i : i+seq_len] 로 targets[i+seq_len] 를 예측하는
+        one-step-ahead 설정. 따라서 반환되는 예측 배열의 k번째 원소는
+        원본 타임스텝 k+sequence_length 에 대응한다.
+        """
         sequences = []
         sequence_targets = []
-        
+
         for i in range(len(features) - self.sequence_length):
             sequences.append(features[i:i+self.sequence_length])
             if targets is not None:
@@ -315,22 +335,39 @@ class LSTMRULPredictor(BaseRULPredictor):
         self.model = model
         return model
     
-    def prepare_data(self, features: np.ndarray, targets: np.ndarray, 
+    def prepare_data(self, features: np.ndarray, targets: np.ndarray,
                     train_split: float = 0.7) -> Tuple:
-        """LSTM 훈련을 위한 데이터 준비"""
-        # 특징과 타겟 정규화
-        features_scaled = self.scaler_features.fit_transform(features)
-        targets_scaled = self.scaler_targets.fit_transform(targets.reshape(-1, 1)).flatten()
-        
-        # 시퀀스 생성
-        X, y = self.create_sequences(features_scaled, targets_scaled)
-        
-        # 훈련/검증 분할
-        split_idx = int(len(X) * train_split)
-        
-        X_train, X_val = X[:split_idx], X[split_idx:]
-        y_train, y_val = y[:split_idx], y[split_idx:]
-        
+        """LSTM 훈련을 위한 데이터 준비.
+
+        데이터 누수 방지를 위해 스케일러는 훈련 구간으로만 fit하고
+        검증 구간에는 transform만 적용한다.
+        """
+        split_idx = int(len(features) * train_split)
+        if split_idx <= self.sequence_length:
+            raise ValueError(
+                f"훈련 구간이 sequence_length({self.sequence_length})보다 커야 합니다."
+            )
+
+        train_features = features[:split_idx]
+        val_features = features[split_idx:]
+        train_targets = targets[:split_idx]
+        val_targets = targets[split_idx:]
+
+        self.scaler_features.fit(train_features)
+        self.scaler_targets.fit(train_targets.reshape(-1, 1))
+
+        train_features_scaled = self.scaler_features.transform(train_features)
+        val_features_scaled = self.scaler_features.transform(val_features)
+        train_targets_scaled = self.scaler_targets.transform(
+            train_targets.reshape(-1, 1)
+        ).flatten()
+        val_targets_scaled = self.scaler_targets.transform(
+            val_targets.reshape(-1, 1)
+        ).flatten()
+
+        X_train, y_train = self.create_sequences(train_features_scaled, train_targets_scaled)
+        X_val, y_val = self.create_sequences(val_features_scaled, val_targets_scaled)
+
         return X_train, X_val, y_train, y_val
     
     def train(self, features: np.ndarray, targets: np.ndarray, **kwargs):
